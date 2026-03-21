@@ -17,6 +17,11 @@ import (
 	"github.com/chrnorm/pkgstore/internal/validate"
 )
 
+// maxControlSize is the maximum decompressed size of the control archive.
+// Control files are typically a few KB; 10MB is a generous limit that
+// prevents decompression bomb attacks.
+const maxControlSize = 10 * 1024 * 1024
+
 // PackageMetadata holds the control file metadata from a .deb package.
 type PackageMetadata struct {
 	Package       string
@@ -101,11 +106,11 @@ func readControl(r io.Reader) (*PackageMetadata, error) {
 				return nil, fmt.Errorf("decompressing control.tar.gz: %w", err)
 			}
 			defer gz.Close()
-			return readControlTar(gz)
+			return readControlTar(io.LimitReader(gz, maxControlSize))
 		}
 
 		if name == "control.tar" {
-			return readControlTar(reader)
+			return readControlTar(io.LimitReader(reader, maxControlSize))
 		}
 	}
 
@@ -136,6 +141,7 @@ func readControlTar(r io.Reader) (*PackageMetadata, error) {
 func parseControl(r io.Reader) (*PackageMetadata, error) {
 	meta := &PackageMetadata{}
 	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	var currentField string
 	for scanner.Scan() {
