@@ -2,10 +2,12 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
-	"strings"
+	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
@@ -22,9 +24,7 @@ func (s *S3) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 		Key:    &key,
 	})
 	if err != nil {
-		// Check for NoSuchKey.
-		var nsk *types.NoSuchKey
-		if isNotFound(err) || asError(err, &nsk) {
+		if isS3NotFound(err) {
 			return nil, &ErrNotFound{Key: key}
 		}
 		return nil, err
@@ -92,19 +92,21 @@ func (s *S3) Delete(ctx context.Context, keys []string) error {
 	return nil
 }
 
-// isNotFound checks if the error message suggests a 404/not-found response.
-func isNotFound(err error) bool {
-	if err == nil {
-		return false
+// isS3NotFound checks if an error is an S3 "not found" error using proper
+// AWS SDK type assertions.
+func isS3NotFound(err error) bool {
+	// Check for the specific NoSuchKey error type.
+	var nsk *types.NoSuchKey
+	if errors.As(err, &nsk) {
+		return true
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "NoSuchKey") || strings.Contains(msg, "404") || strings.Contains(msg, "not found")
-}
 
-// asError is a helper for errors.As with a specific type.
-func asError[T error](err error, target *T) bool {
-	if err == nil {
-		return false
+	// Also check for HTTP 404 responses (some S3 operations return 404
+	// without a typed error, e.g. HeadObject).
+	var respErr *awshttp.ResponseError
+	if errors.As(err, &respErr) {
+		return respErr.HTTPStatusCode() == http.StatusNotFound
 	}
-	return strings.Contains(err.Error(), "NoSuchKey") // simplified check
+
+	return false
 }
