@@ -181,15 +181,19 @@ func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, err
 		}
 	}
 
-	// Upload Release, Release.gpg, InRelease last.
+	// Upload Release files last, in order of dependency.
+	// InRelease is uploaded last because modern apt clients check it first —
+	// until InRelease is updated, clients see the old consistent state.
+	// If the process fails partway, re-running publish will fix the state
+	// (the operation is idempotent).
 	distsPrefix := fmt.Sprintf("dists/%s", opts.Distribution)
-	if err := s.Put(ctx, distsPrefix+"/Release", bytes.NewReader(releaseContent), ""); err != nil {
-		return nil, fmt.Errorf("uploading Release: %w", err)
-	}
 	if releaseGPG != nil {
 		if err := s.Put(ctx, distsPrefix+"/Release.gpg", bytes.NewReader(releaseGPG), ""); err != nil {
 			return nil, fmt.Errorf("uploading Release.gpg: %w", err)
 		}
+	}
+	if err := s.Put(ctx, distsPrefix+"/Release", bytes.NewReader(releaseContent), ""); err != nil {
+		return nil, fmt.Errorf("uploading Release: %w", err)
 	}
 	if inRelease != nil {
 		if err := s.Put(ctx, distsPrefix+"/InRelease", bytes.NewReader(inRelease), ""); err != nil {
