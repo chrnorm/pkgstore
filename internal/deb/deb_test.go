@@ -107,6 +107,21 @@ Description: Granted CLI
 	assert.Len(t, fi.SHA256, 64) // hex-encoded SHA256
 }
 
+func TestReadDeb_i386Architecture(t *testing.T) {
+	// NFPM generates debs with Architecture: i386 for 32-bit builds.
+	// Verify we read the architecture from the control file correctly.
+	control := `Package: granted
+Version: 0.39.0
+Architecture: i386
+Maintainer: Test <test@test.com>
+Description: Test
+`
+	path := createTestDeb(t, control)
+	meta, _, err := ReadDeb(path)
+	require.NoError(t, err)
+	assert.Equal(t, "i386", meta.Architecture)
+}
+
 func TestReadDeb_MissingPackage(t *testing.T) {
 	control := `Version: 1.0.0
 Architecture: amd64

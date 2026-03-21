@@ -18,8 +18,8 @@ import (
 
 // Options configures a publish operation.
 type Options struct {
-	// DebPath is the path to the .deb file to publish.
-	DebPath string
+	// DebPaths is the list of .deb files to publish.
+	DebPaths []string
 
 	// Distribution is the APT suite, e.g. "stable".
 	Distribution string
@@ -42,34 +42,60 @@ type Options struct {
 
 // Result contains information about what was published.
 type Result struct {
+	Packages []PackageResult
+}
+
+// PackageResult contains information about a single published package.
+type PackageResult struct {
 	Package      string
 	Version      string
 	Architecture string
 	PoolPath     string
 }
 
-// Publish adds a .deb package to the APT repository in storage.
+// Publish adds one or more .deb packages to the APT repository in storage.
 func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, error) {
-	// 1. Read the .deb file.
-	meta, fi, err := deb.ReadDeb(opts.DebPath)
-	if err != nil {
-		return nil, fmt.Errorf("reading deb: %w", err)
+	if len(opts.DebPaths) == 0 {
+		return nil, fmt.Errorf("no .deb files specified")
 	}
 
-	poolPath := fmt.Sprintf("pool/%s/%s_%s_%s.deb", opts.Component, meta.Package, meta.Version, meta.Architecture)
+	// 1. Read all .deb files and group by architecture.
+	type debInfo struct {
+		path     string
+		meta     *deb.PackageMetadata
+		fi       *deb.FileInfo
+		poolPath string
+	}
 
-	// 2. Load existing repo state for this architecture.
+	var debs []debInfo
+	archSet := make(map[string]bool)
+
+	for _, debPath := range opts.DebPaths {
+		meta, fi, err := deb.ReadDeb(debPath)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", debPath, err)
+		}
+		poolPath := fmt.Sprintf("pool/%s/%s_%s_%s.deb", opts.Component, meta.Package, meta.Version, meta.Architecture)
+		debs = append(debs, debInfo{path: debPath, meta: meta, fi: fi, poolPath: poolPath})
+		archSet[meta.Architecture] = true
+	}
+
+	// 2. Load existing repo state for all affected architectures.
 	r := repo.New(opts.Distribution, opts.Component)
 	r.Origin = opts.Origin
 	r.Label = opts.Label
 	r.Description = opts.Description
 
-	if err := r.LoadArch(ctx, s, meta.Architecture); err != nil {
-		return nil, fmt.Errorf("loading existing packages: %w", err)
+	for arch := range archSet {
+		if err := r.LoadArch(ctx, s, arch); err != nil {
+			return nil, fmt.Errorf("loading existing packages for %s: %w", arch, err)
+		}
 	}
 
-	// 3. Add the new package.
-	r.AddPackage(meta, fi, poolPath)
+	// 3. Add all packages.
+	for _, d := range debs {
+		r.AddPackage(d.meta, d.fi, d.poolPath)
+	}
 
 	// 4. Build index files (Packages, Packages.gz, by-hash).
 	indexFiles, releaseEntries, err := r.BuildIndexFiles()
@@ -77,8 +103,8 @@ func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, err
 		return nil, fmt.Errorf("building index files: %w", err)
 	}
 
-	// 5. Load existing Release to carry forward checksums for other architectures.
-	existingReleaseEntries, err := loadExistingReleaseEntries(ctx, s, opts.Distribution, opts.Component, meta.Architecture)
+	// 5. Load existing Release to carry forward checksums for untouched architectures.
+	existingReleaseEntries, err := loadExistingReleaseEntries(ctx, s, opts.Distribution, opts.Component, archSet)
 	if err != nil {
 		return nil, fmt.Errorf("loading existing release entries: %w", err)
 	}
@@ -110,14 +136,17 @@ func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, err
 
 	// 8. Upload in order: .deb + by-hash first, then Packages, then Release last.
 
-	// Upload the .deb file.
-	debFile, err := os.Open(opts.DebPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening deb for upload: %w", err)
-	}
-	defer debFile.Close()
-	if err := s.Put(ctx, poolPath, debFile, "application/vnd.debian.binary-package"); err != nil {
-		return nil, fmt.Errorf("uploading deb: %w", err)
+	// Upload all .deb files.
+	for _, d := range debs {
+		debFile, err := os.Open(d.path)
+		if err != nil {
+			return nil, fmt.Errorf("opening %s for upload: %w", d.path, err)
+		}
+		err = s.Put(ctx, d.poolPath, debFile, "application/vnd.debian.binary-package")
+		debFile.Close()
+		if err != nil {
+			return nil, fmt.Errorf("uploading %s: %w", d.poolPath, err)
+		}
 	}
 
 	// Upload by-hash files first (content-addressed, safe to upload anytime).
@@ -154,54 +183,43 @@ func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, err
 		}
 	}
 
-	return &Result{
-		Package:      meta.Package,
-		Version:      meta.Version,
-		Architecture: meta.Architecture,
-		PoolPath:     poolPath,
-	}, nil
+	result := &Result{}
+	for _, d := range debs {
+		result.Packages = append(result.Packages, PackageResult{
+			Package:      d.meta.Package,
+			Version:      d.meta.Version,
+			Architecture: d.meta.Architecture,
+			PoolPath:     d.poolPath,
+		})
+	}
+	return result, nil
 }
 
-// loadExistingReleaseEntries loads the existing Release file and returns IndexFileEntries
-// for architectures other than the one being updated. This allows the new Release file
-// to include checksums for all architectures without re-downloading their Packages files.
-func loadExistingReleaseEntries(ctx context.Context, s storage.Storage, distribution, component, skipArch string) ([]index.IndexFileEntry, error) {
-	releaseKey := fmt.Sprintf("dists/%s/Release", distribution)
-	rc, err := s.Get(ctx, releaseKey)
-	if err != nil {
-		var notFound *storage.ErrNotFound
-		if errors.As(err, &notFound) {
-			return nil, nil // First publish, no existing Release.
-		}
-		return nil, err
-	}
-	defer rc.Close()
-
-	// Parse the existing Release file to find entries for other architectures.
-	// We need to re-download the actual Packages files for those architectures
-	// to get their content for checksum computation.
-	// This is simpler than parsing checksums from the Release file.
-	entries, err := index.ReadPackages(rc)
-	_ = entries // We don't parse Release as Packages; we need a different approach.
-
-	// Instead, list the existing Packages files for other architectures.
+// loadExistingReleaseEntries loads IndexFileEntries for architectures NOT in skipArchs.
+func loadExistingReleaseEntries(ctx context.Context, s storage.Storage, distribution, component string, skipArchs map[string]bool) ([]index.IndexFileEntry, error) {
 	prefix := fmt.Sprintf("dists/%s/%s/", distribution, component)
 	keys, err := s.List(ctx, prefix)
 	if err != nil {
+		var notFound *storage.ErrNotFound
+		if errors.As(err, &notFound) {
+			return nil, nil
+		}
 		return nil, err
 	}
 
 	var result []index.IndexFileEntry
 	for _, key := range keys {
-		// Skip by-hash entries and the architecture we're updating.
 		if strings.Contains(key, "by-hash") {
 			continue
 		}
 		archDir := extractArchDir(key)
-		if archDir == "" || archDir == "binary-"+skipArch {
+		if archDir == "" {
 			continue
 		}
-		// Only include Packages and Packages.gz files.
+		arch := strings.TrimPrefix(archDir, "binary-")
+		if skipArchs[arch] {
+			continue
+		}
 		base := path.Base(key)
 		if base != "Packages" && base != "Packages.gz" {
 			continue
@@ -215,7 +233,6 @@ func loadExistingReleaseEntries(ctx context.Context, s storage.Storage, distribu
 		buf.ReadFrom(rc)
 		rc.Close()
 
-		// Make the path relative to dists/{distribution}/.
 		relPath := strings.TrimPrefix(key, fmt.Sprintf("dists/%s/", distribution))
 		result = append(result, index.IndexFileEntry{
 			RelativePath: relPath,
@@ -226,8 +243,6 @@ func loadExistingReleaseEntries(ctx context.Context, s storage.Storage, distribu
 	return result, nil
 }
 
-// extractArchDir extracts the "binary-{arch}" directory from a path like
-// "dists/stable/main/binary-amd64/Packages".
 func extractArchDir(key string) string {
 	parts := strings.Split(key, "/")
 	for _, p := range parts {

@@ -65,7 +65,7 @@ func TestPublish_Basic(t *testing.T) {
 	debPath := createTestDeb(t, "testpkg", "1.0.0", "amd64")
 
 	result, err := Publish(ctx, store, Options{
-		DebPath:      debPath,
+		DebPaths: []string{debPath},
 		Distribution: "stable",
 		Component:    "main",
 		Origin:       "Test",
@@ -73,10 +73,11 @@ func TestPublish_Basic(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "testpkg", result.Package)
-	assert.Equal(t, "1.0.0", result.Version)
-	assert.Equal(t, "amd64", result.Architecture)
-	assert.Equal(t, "pool/main/testpkg_1.0.0_amd64.deb", result.PoolPath)
+	require.Len(t, result.Packages, 1)
+	assert.Equal(t, "testpkg", result.Packages[0].Package)
+	assert.Equal(t, "1.0.0", result.Packages[0].Version)
+	assert.Equal(t, "amd64", result.Packages[0].Architecture)
+	assert.Equal(t, "pool/main/testpkg_1.0.0_amd64.deb", result.Packages[0].PoolPath)
 
 	// Verify files exist in storage.
 	assertFileExists(t, storeDir, "pool/main/testpkg_1.0.0_amd64.deb")
@@ -121,7 +122,7 @@ func TestPublish_WithGPG(t *testing.T) {
 	debPath := createTestDeb(t, "testpkg", "1.0.0", "amd64")
 
 	_, err = Publish(ctx, store, Options{
-		DebPath:       debPath,
+		DebPaths: []string{debPath},
 		Distribution:  "stable",
 		Component:     "main",
 		GPGPrivateKey: privKey,
@@ -164,7 +165,7 @@ func TestPublish_UpdateExisting(t *testing.T) {
 	// Publish v1.
 	debV1 := createTestDeb(t, "testpkg", "1.0.0", "amd64")
 	_, err := Publish(ctx, store, Options{
-		DebPath:      debV1,
+		DebPaths: []string{debV1},
 		Distribution: "stable",
 		Component:    "main",
 	})
@@ -173,7 +174,7 @@ func TestPublish_UpdateExisting(t *testing.T) {
 	// Publish v2.
 	debV2 := createTestDeb(t, "testpkg", "2.0.0", "amd64")
 	_, err = Publish(ctx, store, Options{
-		DebPath:      debV2,
+		DebPaths: []string{debV2},
 		Distribution: "stable",
 		Component:    "main",
 	})
@@ -202,23 +203,16 @@ func TestPublish_MultipleArchitectures(t *testing.T) {
 	storeDir := t.TempDir()
 	store := &storage.FS{Root: storeDir}
 
-	// Publish amd64.
+	// Publish both architectures in a single call.
 	debAmd64 := createTestDeb(t, "testpkg", "1.0.0", "amd64")
-	_, err := Publish(ctx, store, Options{
-		DebPath:      debAmd64,
-		Distribution: "stable",
-		Component:    "main",
-	})
-	require.NoError(t, err)
-
-	// Publish arm64.
 	debArm64 := createTestDeb(t, "testpkg", "1.0.0", "arm64")
-	_, err = Publish(ctx, store, Options{
-		DebPath:      debArm64,
+	result, err := Publish(ctx, store, Options{
+		DebPaths:     []string{debAmd64, debArm64},
 		Distribution: "stable",
 		Component:    "main",
 	})
 	require.NoError(t, err)
+	assert.Len(t, result.Packages, 2)
 
 	// Verify both architectures have Packages files.
 	assertFileExists(t, storeDir, "dists/stable/main/binary-amd64/Packages")
@@ -237,7 +231,7 @@ func TestPublish_ReleaseChecksums(t *testing.T) {
 
 	debPath := createTestDeb(t, "testpkg", "1.0.0", "amd64")
 	_, err := Publish(ctx, store, Options{
-		DebPath:      debPath,
+		DebPaths: []string{debPath},
 		Distribution: "stable",
 		Component:    "main",
 	})
@@ -262,9 +256,9 @@ func TestPublish_IdempotentRepublish(t *testing.T) {
 	debPath := createTestDeb(t, "testpkg", "1.0.0", "amd64")
 
 	// Publish twice.
-	_, err := Publish(ctx, store, Options{DebPath: debPath, Distribution: "stable", Component: "main"})
+	_, err := Publish(ctx, store, Options{DebPaths: []string{debPath}, Distribution: "stable", Component: "main"})
 	require.NoError(t, err)
-	_, err = Publish(ctx, store, Options{DebPath: debPath, Distribution: "stable", Component: "main"})
+	_, err = Publish(ctx, store, Options{DebPaths: []string{debPath}, Distribution: "stable", Component: "main"})
 	require.NoError(t, err)
 
 	// Should still have only one entry.

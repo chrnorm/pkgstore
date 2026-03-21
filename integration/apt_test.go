@@ -151,7 +151,7 @@ func TestAPTInstall(t *testing.T) {
 	arch := debArch()
 	debPath := createTestDeb(t, "testpkg", "1.0.0", arch)
 	_, err = publish.Publish(ctx, store, publish.Options{
-		DebPath:       debPath,
+		DebPaths: []string{debPath},
 		Distribution:  "stable",
 		Component:     "main",
 		Origin:        "Test",
@@ -199,7 +199,7 @@ func TestAPTUpgrade(t *testing.T) {
 	arch := debArch()
 	debV1 := createTestDeb(t, "testpkg", "1.0.0", arch)
 	_, err = publish.Publish(ctx, store, publish.Options{
-		DebPath:       debV1,
+		DebPaths: []string{debV1},
 		Distribution:  "stable",
 		Component:     "main",
 		GPGPrivateKey: privKey,
@@ -208,7 +208,7 @@ func TestAPTUpgrade(t *testing.T) {
 
 	debV2 := createTestDeb(t, "testpkg", "2.0.0", arch)
 	_, err = publish.Publish(ctx, store, publish.Options{
-		DebPath:       debV2,
+		DebPaths: []string{debV2},
 		Distribution:  "stable",
 		Component:     "main",
 		GPGPrivateKey: privKey,

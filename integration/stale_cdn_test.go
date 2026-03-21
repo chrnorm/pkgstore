@@ -52,7 +52,7 @@ func TestStaleCDN(t *testing.T) {
 	arch := debArch()
 	debV1 := createStaleCDNTestDeb(t, "testpkg", "1.0.0", arch)
 	_, err = publish.Publish(ctx, store, publish.Options{
-		DebPath:       debV1,
+		DebPaths: []string{debV1},
 		Distribution:  "stable",
 		Component:     "main",
 		Origin:        "Test",
@@ -74,7 +74,7 @@ func TestStaleCDN(t *testing.T) {
 	// and a new Release file pointing to the new hashes.
 	debV2 := createStaleCDNTestDeb(t, "testpkg", "2.0.0", arch)
 	_, err = publish.Publish(ctx, store, publish.Options{
-		DebPath:       debV2,
+		DebPaths: []string{debV2},
 		Distribution:  "stable",
 		Component:     "main",
 		Origin:        "Test",
