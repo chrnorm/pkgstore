@@ -14,6 +14,7 @@ import (
 	"github.com/chrnorm/pkgstore/internal/index"
 	"github.com/chrnorm/pkgstore/internal/repo"
 	"github.com/chrnorm/pkgstore/internal/storage"
+	"github.com/chrnorm/pkgstore/internal/validate"
 )
 
 // Options configures a publish operation.
@@ -62,6 +63,14 @@ type PackageResult struct {
 func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, error) {
 	if len(opts.DebPaths) == 0 {
 		return nil, fmt.Errorf("no .deb files specified")
+	}
+
+	// Validate distribution and component names to prevent path traversal.
+	if err := validate.Name(opts.Distribution, "distribution"); err != nil {
+		return nil, err
+	}
+	if err := validate.Name(opts.Component, "component"); err != nil {
+		return nil, err
 	}
 
 	// 1. Read all .deb files and group by architecture.

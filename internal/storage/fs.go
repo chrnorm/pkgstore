@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,8 +14,25 @@ type FS struct {
 	Root string
 }
 
+// safePath resolves a key to an absolute path under Root and validates
+// that it doesn't escape via path traversal.
+func (f *FS) safePath(key string) (string, error) {
+	root, err := filepath.Abs(f.Root)
+	if err != nil {
+		return "", fmt.Errorf("resolving root: %w", err)
+	}
+	resolved := filepath.Clean(filepath.Join(root, key))
+	if !strings.HasPrefix(resolved, root+string(filepath.Separator)) && resolved != root {
+		return "", fmt.Errorf("path traversal detected: %q resolves outside root", key)
+	}
+	return resolved, nil
+}
+
 func (f *FS) Get(_ context.Context, key string) (io.ReadCloser, error) {
-	path := filepath.Join(f.Root, key)
+	path, err := f.safePath(key)
+	if err != nil {
+		return nil, err
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -26,7 +44,10 @@ func (f *FS) Get(_ context.Context, key string) (io.ReadCloser, error) {
 }
 
 func (f *FS) Put(_ context.Context, key string, body io.Reader, _ string) error {
-	path := filepath.Join(f.Root, key)
+	path, err := f.safePath(key)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -40,10 +61,14 @@ func (f *FS) Put(_ context.Context, key string, body io.Reader, _ string) error 
 }
 
 func (f *FS) List(_ context.Context, prefix string) ([]string, error) {
-	var keys []string
-	root := filepath.Join(f.Root, prefix)
+	root, err := filepath.Abs(f.Root)
+	if err != nil {
+		return nil, err
+	}
+	searchRoot := filepath.Join(root, prefix)
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	var keys []string
+	err = filepath.Walk(searchRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			if os.IsNotExist(err) {
 				return nil
@@ -51,7 +76,7 @@ func (f *FS) List(_ context.Context, prefix string) ([]string, error) {
 			return err
 		}
 		if !info.IsDir() {
-			rel, err := filepath.Rel(f.Root, path)
+			rel, err := filepath.Rel(root, path)
 			if err != nil {
 				return err
 			}
@@ -68,7 +93,10 @@ func (f *FS) List(_ context.Context, prefix string) ([]string, error) {
 
 func (f *FS) Delete(_ context.Context, keys []string) error {
 	for _, key := range keys {
-		path := filepath.Join(f.Root, key)
+		path, err := f.safePath(key)
+		if err != nil {
+			return err
+		}
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}

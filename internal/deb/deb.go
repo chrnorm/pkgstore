@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/blakesmith/ar"
+	"github.com/chrnorm/pkgstore/internal/validate"
 )
 
 // PackageMetadata holds the control file metadata from a .deb package.
@@ -195,6 +196,17 @@ func parseControl(r io.Reader) (*PackageMetadata, error) {
 	}
 	if meta.Architecture == "" {
 		return nil, fmt.Errorf("control file missing Architecture field")
+	}
+
+	// Validate fields used in path construction to prevent path traversal.
+	if err := validate.Name(meta.Package, "Package"); err != nil {
+		return nil, err
+	}
+	if err := validate.Name(meta.Version, "Version"); err != nil {
+		return nil, err
+	}
+	if err := validate.Name(meta.Architecture, "Architecture"); err != nil {
+		return nil, err
 	}
 
 	return meta, nil
