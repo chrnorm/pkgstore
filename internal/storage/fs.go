@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // FS implements Storage using the local filesystem.
@@ -89,6 +90,43 @@ func (f *FS) List(_ context.Context, prefix string) ([]string, error) {
 		return nil, err
 	}
 	return keys, nil
+}
+
+// ListWithModTime returns objects with modification times from the filesystem.
+func (f *FS) ListWithModTime(_ context.Context, prefix string) ([]ObjectWithModTime, error) {
+	root, err := filepath.Abs(f.Root)
+	if err != nil {
+		return nil, err
+	}
+	searchRoot := filepath.Join(root, prefix)
+
+	var objects []ObjectWithModTime
+	_ = filepath.Walk(searchRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if !info.IsDir() {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			objects = append(objects, ObjectWithModTime{
+				Key:     strings.ReplaceAll(rel, string(filepath.Separator), "/"),
+				ModTime: info.ModTime(),
+			})
+		}
+		return nil
+	})
+	return objects, nil
+}
+
+// SetModTime is a test helper to set the modification time of a file.
+func (f *FS) SetModTime(key string, t time.Time) error {
+	path := filepath.Join(f.Root, key)
+	return os.Chtimes(path, t, t)
 }
 
 func (f *FS) Delete(_ context.Context, keys []string) error {

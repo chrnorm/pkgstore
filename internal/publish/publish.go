@@ -39,11 +39,6 @@ type Options struct {
 
 	// GPGPassphrase is the passphrase for the GPG key, if encrypted.
 	GPGPassphrase string
-
-	// PruneKeepByHash controls by-hash pruning. If > 0, old by-hash entries
-	// are pruned after publish, keeping this many most recent entries per file.
-	// 0 (default) means no pruning.
-	PruneKeepByHash int
 }
 
 // Result contains information about what was published.
@@ -198,47 +193,6 @@ func Publish(ctx context.Context, s storage.Storage, opts Options) (*Result, err
 	if inRelease != nil {
 		if err := s.Put(ctx, distsPrefix+"/InRelease", bytes.NewReader(inRelease), ""); err != nil {
 			return nil, fmt.Errorf("uploading InRelease: %w", err)
-		}
-	}
-
-	// 9. Prune old by-hash entries if configured.
-	if opts.PruneKeepByHash > 0 {
-		// Collect the current by-hash keys (the ones we just uploaded).
-		currentByHash := make(map[string]bool)
-		for filePath := range indexFiles {
-			if strings.Contains(filePath, "by-hash") {
-				currentByHash[filePath] = true
-			}
-		}
-
-		for arch := range archSet {
-			byHashPrefix := fmt.Sprintf("dists/%s/%s/binary-%s/by-hash/SHA256/", opts.Distribution, opts.Component, arch)
-			allKeys, err := s.List(ctx, byHashPrefix)
-			if err != nil {
-				continue
-			}
-
-			// Keep the most recent N entries. Since we can't sort by time in S3,
-			// we keep any key that's in the current set, plus allow up to
-			// PruneKeepByHash total. Delete the rest.
-			var toDelete []string
-			kept := 0
-			for _, key := range allKeys {
-				if currentByHash[key] {
-					continue // Always keep current entries.
-				}
-				kept++
-				if kept > opts.PruneKeepByHash {
-					toDelete = append(toDelete, key)
-				}
-			}
-
-			if len(toDelete) > 0 {
-				if err := s.Delete(ctx, toDelete); err != nil {
-					// Non-fatal: pruning failure shouldn't fail the publish.
-					fmt.Fprintf(os.Stderr, "warning: failed to prune by-hash entries: %v\n", err)
-				}
-			}
 		}
 	}
 

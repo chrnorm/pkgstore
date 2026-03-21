@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -61,6 +62,32 @@ func (s *S3) List(ctx context.Context, prefix string) ([]string, error) {
 		}
 	}
 	return keys, nil
+}
+
+// ListWithModTime returns objects with their modification times.
+func (s *S3) ListWithModTime(ctx context.Context, prefix string) ([]ObjectWithModTime, error) {
+	var objects []ObjectWithModTime
+	paginator := s3.NewListObjectsV2Paginator(s.Client, &s3.ListObjectsV2Input{
+		Bucket: &s.Bucket,
+		Prefix: &prefix,
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, obj := range page.Contents {
+			modTime := time.Time{}
+			if obj.LastModified != nil {
+				modTime = *obj.LastModified
+			}
+			objects = append(objects, ObjectWithModTime{
+				Key:     aws.ToString(obj.Key),
+				ModTime: modTime,
+			})
+		}
+	}
+	return objects, nil
 }
 
 func (s *S3) Delete(ctx context.Context, keys []string) error {

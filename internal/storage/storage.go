@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"io"
+	"time"
 )
 
 // Storage is the interface for reading and writing repository files.
@@ -18,6 +19,12 @@ type Storage interface {
 
 	// Delete removes the given keys.
 	Delete(ctx context.Context, keys []string) error
+}
+
+// ObjectWithModTime represents a storage object with its modification time.
+type ObjectWithModTime struct {
+	Key     string
+	ModTime time.Time
 }
 
 // ErrNotFound is returned by Get when the key does not exist.
