@@ -266,6 +266,44 @@ func TestPublish_IdempotentRepublish(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(packagesContent, "Package: testpkg"))
 }
 
+func TestPublish_PruneByHash(t *testing.T) {
+	ctx := context.Background()
+	storeDir := t.TempDir()
+	store := &storage.FS{Root: storeDir}
+
+	// Publish 3 versions to accumulate by-hash entries.
+	for _, ver := range []string{"1.0.0", "2.0.0", "3.0.0"} {
+		debPath := createTestDeb(t, "testpkg", ver, "amd64")
+		_, err := Publish(ctx, store, Options{
+			DebPaths:     []string{debPath},
+			Distribution: "stable",
+			Component:    "main",
+		})
+		require.NoError(t, err)
+	}
+
+	// Should have 6 by-hash entries (2 per version: Packages + Packages.gz).
+	byHashDir := filepath.Join(storeDir, "dists/stable/main/binary-amd64/by-hash/SHA256")
+	entries, err := os.ReadDir(byHashDir)
+	require.NoError(t, err)
+	assert.Equal(t, 6, len(entries))
+
+	// Publish v4 with pruning: keep 2 old entries.
+	debPath := createTestDeb(t, "testpkg", "4.0.0", "amd64")
+	_, err = Publish(ctx, store, Options{
+		DebPaths:        []string{debPath},
+		Distribution:    "stable",
+		Component:       "main",
+		PruneKeepByHash: 2,
+	})
+	require.NoError(t, err)
+
+	// Should have current (2) + kept (2) = 4 by-hash entries.
+	entries, err = os.ReadDir(byHashDir)
+	require.NoError(t, err)
+	assert.Equal(t, 4, len(entries))
+}
+
 func assertFileExists(t *testing.T, root, relPath string) {
 	t.Helper()
 	_, err := os.Stat(filepath.Join(root, relPath))
