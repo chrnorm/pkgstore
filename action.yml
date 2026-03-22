@@ -1,0 +1,30 @@
+name: pkgstore publish
+description: Publish signed APT repositories using pkgstore
+
+inputs:
+  version:
+    description: "pkgstore version to use. Defaults to the baked-in VERSION file."
+    required: false
+  checksum:
+    description: "Expected SHA256 checksum (sha256:hex) when using a custom version."
+    required: false
+  args:
+    description: "Arguments to pass to pkgstore (default: publish)"
+    required: false
+    default: "publish"
+
+runs:
+  using: composite
+  steps:
+    - name: Install pkgstore
+      shell: bash
+      run: bash "${GITHUB_ACTION_PATH}/install-pkgstore.sh"
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CHECKSUM: ${{ inputs.checksum }}
+
+    - name: Run pkgstore
+      shell: bash
+      run: pkgstore ${PKGSTORE_ARGS}
+      env:
+        PKGSTORE_ARGS: ${{ inputs.args }}

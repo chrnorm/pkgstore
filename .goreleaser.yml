@@ -1,0 +1,29 @@
+version: 2
+
+builds:
+  - main: ./cmd/pkgstore
+    binary: pkgstore
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "pkgstore_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+release:
+  github:
+    owner: chrnorm
+    name: pkgstore
+
+changelog:
+  sort: asc

@@ -1,3 +1,6 @@
+# GoReleaser
+dist/
+
 # Binaries
 pkgstore
 *.exe
