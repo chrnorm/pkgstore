@@ -10,22 +10,20 @@ No server required — your APT repo is just files on S3.
 
 ### GitHub Action
 
+See [chrnorm/pkgstore-action](https://github.com/chrnorm/pkgstore-action).
+
 ```yaml
-- uses: chrnorm/pkgstore@v1
+- uses: chrnorm/pkgstore-action@v1
   with:
-    args: >-
-      publish
-      --deb my-package_1.0.0_amd64.deb
-      --bucket my-apt-repo
-      --origin "My Project"
-      --gpg-key "${{ secrets.GPG_PRIVATE_KEY }}"
+    deb: my-package_1.0.0_amd64.deb
+    bucket: my-apt-repo
+    origin: "My Project"
+    gpg-key: ${{ secrets.GPG_PRIVATE_KEY }}
   env:
     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
     AWS_REGION: us-east-1
 ```
-
-The action downloads a prebuilt binary and verifies its SHA256 checksum before running it. No Go toolchain needed on the runner.
 
 ### CLI
 
@@ -65,16 +63,6 @@ echo "deb [signed-by=/usr/share/keyrings/your-repo.gpg] https://your-domain stab
 
 sudo apt update
 ```
-
-## Action inputs
-
-| Input | Description | Default |
-|-------|-------------|---------|
-| `args` | Arguments passed to pkgstore | `publish` |
-| `version` | Override the pkgstore version | Baked-in version |
-| `checksum` | SHA256 checksum for a custom version (`sha256:abc123...`) | — |
-
-When using the default version, checksums are verified against the `checksums.txt` committed in this repo. When specifying a custom version without a checksum, the action emits a warning that the binary is unverified.
 
 ## Building from source
 

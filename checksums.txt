@@ -1,2 +1,0 @@
-# Checksums are updated automatically at release time.
-# This file is intentionally empty until the first release.
