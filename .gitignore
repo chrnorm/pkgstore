@@ -2,7 +2,7 @@
 dist/
 
 # Binaries
-pkgstore
+/pkgstore
 *.exe
 *.dll
 *.so

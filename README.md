@@ -2,9 +2,9 @@
 
 Publish signed APT repositories to S3.
 
-pkgstore takes `.deb` files, generates the APT repository metadata (Packages, Release, InRelease), GPG-signs everything, and uploads it to an S3 bucket. Optionally invalidates CloudFront so clients pick up changes immediately.
+pkgstore takes `.deb` files, generates the APT repository metadata (Packages, Release, InRelease), GPG-signs everything, and uploads it to an S3-compatible bucket.
 
-No server required — your APT repo is just files on S3.
+Works with AWS S3, Cloudflare R2, Google Cloud Storage, MinIO, and anything else that speaks the S3 API. No server required — your APT repo is just files in a bucket.
 
 ## Usage
 
@@ -47,9 +47,26 @@ Over time, `by-hash` entries accumulate. Clean them up with:
 pkgstore prune --bucket my-apt-repo --older-than 24h
 ```
 
+### CDN cache invalidation
+
+If you front your bucket with a CDN, pkgstore can automatically invalidate the Release files after publishing. Pass the flag for your provider:
+
+```sh
+# AWS CloudFront
+pkgstore publish --deb foo.deb --bucket my-repo \
+  --aws-cloudfront-distribution-id E1234567890
+
+# Cloudflare
+pkgstore publish --deb foo.deb --bucket my-repo \
+  --endpoint https://acct.r2.cloudflarestorage.com \
+  --cloudflare-zone-id abc123 --cloudflare-domain apt.example.com
+```
+
+See [CDN cache invalidation](https://github.com/chrnorm/pkgstore-action#cdn-cache-invalidation) in the action README for GitHub Actions examples.
+
 ## Setting up the APT repository on S3
 
-1. Create an S3 bucket with public read access (or use CloudFront with an OAI)
+1. Create an S3-compatible bucket with public read access (or front it with a CDN)
 2. Upload your GPG public key somewhere users can fetch it
 3. Run `pkgstore publish` to push your first packages
 
